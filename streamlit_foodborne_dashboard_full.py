@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import shap
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import streamlit.components.v1 as components
+import pandas as pd
 
 # ------------------ Config ------------------
 st.set_page_config(
@@ -120,8 +120,8 @@ def shap_plain_text_user(shap_values, predicted_label, label_names):
 
     return " | ".join(explanations)
 
-# ------------------ SHAP Table ------------------
-def shap_table_data(shap_values, predicted_label, label_names, top_k=8):
+# ------------------ SHAP Bar Chart ------------------
+def shap_bar_data(shap_values, predicted_label, label_names, top_k=8):
     class_idx = label_names.index(predicted_label)
 
     if shap_values.values.ndim == 3:
@@ -130,14 +130,11 @@ def shap_table_data(shap_values, predicted_label, label_names, top_k=8):
         values = shap_values.values[0]
 
     tokens = shap_values.data
-    rows = [
-        {"Token": t, "SHAP Value": round(v, 4)}
-        for t, v in zip(tokens, values)
-        if t.strip()
-    ]
+    pairs = [(t, v) for t, v in zip(tokens, values) if t.strip()]
+    pairs = sorted(pairs, key=lambda x: abs(x[1]), reverse=True)[:top_k]
 
-    rows = sorted(rows, key=lambda x: abs(x["SHAP Value"]), reverse=True)
-    return rows[:top_k]
+    df = pd.DataFrame(pairs, columns=["Token", "SHAP Value"])
+    return df
 
 # ------------------ Attention Keywords ------------------
 def get_attention_keywords(outputs, inputs, tokenizer, top_k=6):
@@ -167,8 +164,7 @@ This system uses natural language processing (NLP) and BERTweet-based deep learn
 to analyze food-related reviews and complaints. By examining textual patterns associated 
 with symptoms, hygiene issues, and contamination indicators, the model predicts the 
 potential risk of foodborne illness. Explainable AI techniques such as SHAP and attention 
-mechanisms are applied to highlight important words influencing the prediction, improving 
-transparency and user trust.
+mechanisms are applied to provide transparent and interpretable predictions.
     """)
 
     st.header("Symptoms of Foodborne Illness")
@@ -217,16 +213,10 @@ with tab2:
             )
         )
 
-        # SHAP Table
-        st.subheader("📋 SHAP Token Contribution Table")
-        st.dataframe(
-            shap_table_data(
-                shap_values[0],
-                label,
-                LABELS
-            ),
-            use_container_width=True
-        )
+        # ---------------- SHAP Bar Chart ----------------
+        st.subheader("📊 SHAP Token Contributions (Bar Chart)")
+        bar_df = shap_bar_data(shap_values[0], label, LABELS)
+        st.bar_chart(bar_df.set_index("Token"))
 
         # Probabilities
         st.subheader("📊 Class Probabilities")
@@ -238,17 +228,6 @@ with tab2:
             outputs, enc, tokenizer
         ):
             st.markdown(f"- **{tok}** (attention = {score:.4f})")
-
-        # Optional SHAP visualization
-        st.subheader("📈 SHAP Visualization")
-        try:
-            components.html(
-                shap_values[0].to_html(),
-                height=300,
-                scrolling=True
-            )
-        except Exception:
-            st.warning("SHAP visualization not supported here.")
 
     else:
         st.info("Enter text and click Analyze Risk")
