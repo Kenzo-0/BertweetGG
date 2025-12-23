@@ -213,10 +213,7 @@ with tab2:
             )
         )
 
-        # ---------------- SHAP Bar Chart ----------------
-        st.subheader("📊 SHAP Token Contributions (Bar Chart)")
-        bar_df = shap_bar_data(shap_values[0], label, LABELS)
-        st.bar_chart(bar_df.set_index("Token"))
+        
 
         # Probabilities
         st.subheader("📊 Class Probabilities")
@@ -231,3 +228,4 @@ with tab2:
 
     else:
         st.info("Enter text and click Analyze Risk")
+
