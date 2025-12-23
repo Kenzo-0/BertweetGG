@@ -166,13 +166,7 @@ tab1, tab2 = st.tabs(["📘 About", "🔍 Text Analysis"])
 with tab1:
     st.header("About Foodborne Illness Detection")
     st.markdown("""
-    This dashboard uses **BERTweet-based models** to classify
-    foodborne illness risk from text reviews.
-
-    **Features**
-    - SHAP token contribution (HTML + plain language)
-    - Attention-based keyword extraction
-    - Multiple model comparison
+   This system uses natural language processing (NLP) and BERTweet-based deep learning models to analyze food-related reviews and complaints. By examining textual patterns associated with symptoms, hygiene issues, and contamination indicators, the model predicts the potential risk of foodborne illness. Explainable AI techniques such as SHAP and attention mechanisms are applied to highlight important words influencing the prediction, improving transparency and user trust.
     """)
 
     st.header("Symptoms of Foodborne Illness")
@@ -249,3 +243,4 @@ with tab2:
 
     else:
         st.info("Enter text and click Analyze Risk")
+
