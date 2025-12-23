@@ -10,8 +10,8 @@ st.set_page_config(page_title="Foodborne Illness Detector", page_icon="🍲", la
 
 # ------------------ Model Paths (Hugging Face public repos) ------------------
 MODEL_PATHS = {
-    "BERTweet (Baseline)": "Kenzo15/bertweet-baseline",
-    "BERTweet + SMOTE": "Kenzo15/bertweet-smote",
+    "BERTweet (Baseline)": "Kenzo15/bertweet-smote",
+    "BERTweet + SMOTE": "Kenzo15/bertweet-baseline",
     "BERTweet (Hyper-tuned)": "Kenzo15/final-bertweet",
 }
 
