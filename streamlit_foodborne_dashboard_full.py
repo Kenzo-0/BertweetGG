@@ -95,28 +95,6 @@ def get_shap_explanation(text, tokenizer, model, max_tokens=50):
     shap_values = explainer([text])
     return shap_values
 
-# ------------------ Neon SHAP Text ------------------
-def shap_text_neon(
-    shap_values,
-    color_positive="#39FF14",
-    color_negative="#FF6EC7"
-):
-    html = ""
-    values = shap_values.values[0]
-    tokens = shap_values.data
-
-    for token, val in zip(tokens, values):
-        if not token.strip():
-            continue
-        color = color_positive if val > 0 else color_negative
-        opacity = min(abs(val) * 5, 1)
-        html += (
-            f'<span style="color:{color}; opacity:{opacity}; '
-            f'font-weight:bold">{token} </span>'
-        )
-
-    return html
-
 # ------------------ Plain-language SHAP ------------------
 def shap_plain_text_user(shap_values, predicted_label, label_names):
     class_idx = label_names.index(predicted_label)
@@ -142,6 +120,25 @@ def shap_plain_text_user(shap_values, predicted_label, label_names):
 
     return " | ".join(explanations)
 
+# ------------------ SHAP Table ------------------
+def shap_table_data(shap_values, predicted_label, label_names, top_k=8):
+    class_idx = label_names.index(predicted_label)
+
+    if shap_values.values.ndim == 3:
+        values = shap_values.values[0, :, class_idx]
+    else:
+        values = shap_values.values[0]
+
+    tokens = shap_values.data
+    rows = [
+        {"Token": t, "SHAP Value": round(v, 4)}
+        for t, v in zip(tokens, values)
+        if t.strip()
+    ]
+
+    rows = sorted(rows, key=lambda x: abs(x["SHAP Value"]), reverse=True)
+    return rows[:top_k]
+
 # ------------------ Attention Keywords ------------------
 def get_attention_keywords(outputs, inputs, tokenizer, top_k=6):
     attn = outputs.attentions[-1]
@@ -166,7 +163,12 @@ tab1, tab2 = st.tabs(["📘 About", "🔍 Text Analysis"])
 with tab1:
     st.header("About Foodborne Illness Detection")
     st.markdown("""
-   This system uses natural language processing (NLP) and BERTweet-based deep learning models to analyze food-related reviews and complaints. By examining textual patterns associated with symptoms, hygiene issues, and contamination indicators, the model predicts the potential risk of foodborne illness. Explainable AI techniques such as SHAP and attention mechanisms are applied to highlight important words influencing the prediction, improving transparency and user trust.
+This system uses natural language processing (NLP) and BERTweet-based deep learning models 
+to analyze food-related reviews and complaints. By examining textual patterns associated 
+with symptoms, hygiene issues, and contamination indicators, the model predicts the 
+potential risk of foodborne illness. Explainable AI techniques such as SHAP and attention 
+mechanisms are applied to highlight important words influencing the prediction, improving 
+transparency and user trust.
     """)
 
     st.header("Symptoms of Foodborne Illness")
@@ -201,12 +203,12 @@ with tab2:
         st.subheader("🧠 Prediction")
         st.success(f"Prediction: **{label}**")
 
-        # SHAP
+        # SHAP explanation
         shap_values = get_shap_explanation(
             text_input, tokenizer, model
         )
 
-        st.subheader("📝 SHAP Explanation ")
+        st.subheader("📝 SHAP Explanation")
         st.markdown(
             shap_plain_text_user(
                 shap_values[0],
@@ -215,9 +217,16 @@ with tab2:
             )
         )
 
-        st.subheader("✨ SHAP Token Contribution")
-        neon_html = shap_text_neon(shap_values[0])
-        components.html(neon_html, height=150)
+        # SHAP Table
+        st.subheader("📋 SHAP Token Contribution Table")
+        st.dataframe(
+            shap_table_data(
+                shap_values[0],
+                label,
+                LABELS
+            ),
+            use_container_width=True
+        )
 
         # Probabilities
         st.subheader("📊 Class Probabilities")
@@ -230,7 +239,7 @@ with tab2:
         ):
             st.markdown(f"- **{tok}** (attention = {score:.4f})")
 
-        # SHAP HTML (Safe)
+        # Optional SHAP visualization
         st.subheader("📈 SHAP Visualization")
         try:
             components.html(
@@ -243,4 +252,3 @@ with tab2:
 
     else:
         st.info("Enter text and click Analyze Risk")
-
