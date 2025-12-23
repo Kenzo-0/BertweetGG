@@ -6,9 +6,13 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import streamlit.components.v1 as components
 
 # ------------------ Config ------------------
-st.set_page_config(page_title="Foodborne Illness Detector", page_icon="🍲", layout="wide")
+st.set_page_config(
+    page_title="Foodborne Illness Detector",
+    page_icon="🍲",
+    layout="wide"
+)
 
-# ------------------ Model Paths (Hugging Face public repos) ------------------
+# ------------------ Model Paths ------------------
 MODEL_PATHS = {
     "BERTweet (Baseline)": "Kenzo15/bertweet-smote",
     "BERTweet + SMOTE": "Kenzo15/bertweet-baseline",
@@ -26,21 +30,33 @@ st.sidebar.caption("Created by Iskandar")
 @st.cache_resource
 def load_model(model_name_or_path):
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name_or_path, output_attentions=True)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name_or_path,
+        output_attentions=True
+    )
     model.eval()
     return tokenizer, model
 
 # ------------------ Prediction ------------------
 def predict_text(text, tokenizer, model):
-    enc = tokenizer(text, return_tensors="pt", truncation=True, max_length=128)
+    enc = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=128
+    )
+
     with torch.no_grad():
         out = model(**enc)
-    probs = torch.softmax(out.logits, dim=1).numpy()[0]
+
+    probs = torch.softmax(out.logits, dim=1).cpu().numpy()[0]
     label = LABELS[int(np.argmax(probs))]
+
     return label, probs, out, enc
 
 # ------------------ SHAP Explanation ------------------
 def get_shap_explanation(text, tokenizer, model, max_tokens=50):
+
     def model_predict(texts):
         if isinstance(texts, str):
             texts = [texts]
@@ -48,49 +64,61 @@ def get_shap_explanation(text, tokenizer, model, max_tokens=50):
             texts = texts.tolist()
         elif not isinstance(texts, list):
             raise ValueError("Input must be str or list of str")
+
         texts = [str(t) for t in texts]
 
-        enc = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=128)
-        device = next(model.parameters()).device
-        enc = {k: v.to(device) for k, v in enc.items()}
+        enc = tokenizer(
+            texts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=128
+        )
 
         with torch.no_grad():
             out = model(**enc)
             probs = torch.softmax(out.logits, dim=1)
+
         return probs.cpu().numpy()
 
-    tokenized_text = tokenizer.tokenize(text)
-    if len(tokenized_text) > max_tokens:
-        text_to_explain = tokenizer.convert_tokens_to_string(tokenized_text[:max_tokens])
-    else:
-        text_to_explain = text
+    tokens = tokenizer.tokenize(text)
+    if len(tokens) > max_tokens:
+        text = tokenizer.convert_tokens_to_string(tokens[:max_tokens])
 
     masker = shap.maskers.Text(tokenizer)
-    explainer = shap.Explainer(model_predict, masker, output_names=LABELS)
-    shap_values = explainer([text_to_explain])
+    explainer = shap.Explainer(
+        model_predict,
+        masker,
+        output_names=LABELS
+    )
+
+    shap_values = explainer([text])
     return shap_values
 
-# ------------------ Streamlit SHAP renderer ------------------
-def st_shap(plot_html, height=None):
-    shap_html = f"<head>{shap.getjs()}</head><body>{plot_html}</body>"
-    components.html(shap_html, height=height or 300)
-
 # ------------------ Neon SHAP Text ------------------
-def shap_text_neon(shap_values, color_positive="#39FF14", color_negative="#FF6EC7"):
-    text = ""
-    for token, val in zip(shap_values.data, shap_values.values[0]):
-        if not token.strip():  # skip empty tokens
+def shap_text_neon(
+    shap_values,
+    color_positive="#39FF14",
+    color_negative="#FF6EC7"
+):
+    html = ""
+    values = shap_values.values[0]
+    tokens = shap_values.data
+
+    for token, val in zip(tokens, values):
+        if not token.strip():
             continue
         color = color_positive if val > 0 else color_negative
         opacity = min(abs(val) * 5, 1)
-        text += f'<span style="color:{color}; opacity:{opacity}; font-weight:bold">{token} </span>'
-    return text
+        html += (
+            f'<span style="color:{color}; opacity:{opacity}; '
+            f'font-weight:bold">{token} </span>'
+        )
 
-# ------------------ Plain-language SHAP explanation ------------------
+    return html
+
+# ------------------ Plain-language SHAP ------------------
 def shap_plain_text_user(shap_values, predicted_label, label_names):
-    if len(shap_values.data) == 0 or shap_values.values.size == 0:
-        return "No significant words found."
-
     class_idx = label_names.index(predicted_label)
 
     if shap_values.values.ndim == 3:
@@ -98,79 +126,126 @@ def shap_plain_text_user(shap_values, predicted_label, label_names):
     else:
         token_values = shap_values.values[0]
 
-    tokens_and_values = [(t, v) for t, v in zip(shap_values.data, token_values) if t.strip()]
-    top_tokens = sorted(tokens_and_values, key=lambda x: abs(x[1]), reverse=True)[:5]
+    tokens = shap_values.data
+    pairs = [(t, v) for t, v in zip(tokens, token_values) if t.strip()]
+    top = sorted(pairs, key=lambda x: abs(x[1]), reverse=True)[:5]
 
-    explanation = []
-    for token, val in top_tokens:
+    if not top:
+        return "No words had significant impact on the prediction."
+
+    explanations = []
+    for token, val in top:
         impact = "increases" if val > 0 else "decreases"
-        explanation.append(f'"{token}" {impact} likelihood of {predicted_label}')
+        explanations.append(
+            f'"{token}" {impact} likelihood of {predicted_label}'
+        )
 
-    if not explanation:
-        return "No words had significant impact on prediction."
-
-    return " | ".join(explanation)
+    return " | ".join(explanations)
 
 # ------------------ Attention Keywords ------------------
 def get_attention_keywords(outputs, inputs, tokenizer, top_k=6):
-    attns = outputs.attentions[-1]
-    scores = attns.mean(dim=1).mean(dim=1).squeeze()
-    tokens = tokenizer.convert_ids_to_tokens(inputs["input_ids"].squeeze())
-    token_scores = [(tok, s) for tok, s in zip(tokens, scores.tolist()) if tok not in tokenizer.all_special_tokens]
-    return sorted(token_scores, key=lambda x: x[1], reverse=True)[:top_k]
+    attn = outputs.attentions[-1]
+    scores = attn.mean(dim=1).mean(dim=1).squeeze()
+
+    tokens = tokenizer.convert_ids_to_tokens(
+        inputs["input_ids"].squeeze()
+    )
+
+    pairs = [
+        (tok, score)
+        for tok, score in zip(tokens, scores.tolist())
+        if tok not in tokenizer.all_special_tokens
+    ]
+
+    return sorted(pairs, key=lambda x: x[1], reverse=True)[:top_k]
 
 # ------------------ Tabs ------------------
 tab1, tab2 = st.tabs(["📘 About", "🔍 Text Analysis"])
 
-# About
+# ------------------ About ------------------
 with tab1:
     st.header("About Foodborne Illness Detection")
     st.markdown("""
-This dashboard uses **BERTweet models** to classify foodborne illness risk from text reviews.
+    This dashboard uses **BERTweet-based models** to classify
+    foodborne illness risk from text reviews.
 
-- **SHAP** highlights token contribution (neon/heatmap colors + plain language explanation)
-- **Attention** highlights important keywords
-- Compare multiple trained models
-""")
+    **Features**
+    - SHAP token contribution (HTML + plain language)
+    - Attention-based keyword extraction
+    - Multiple model comparison
+    """)
+
     st.header("Symptoms of Foodborne Illness")
-    st.image("https://www.cfs.gov.hk/english/trade_zone/safe_kitchen/image/p16-1.png", width=600)
+    st.image(
+        "https://www.cfs.gov.hk/english/trade_zone/safe_kitchen/image/p16-1.png",
+        width=600
+    )
 
-# Analysis
+# ------------------ Analysis ------------------
 with tab2:
     st.header("Text Risk Analysis")
-    model_choice = st.selectbox("Select BERTweet model", list(MODEL_PATHS.keys()))
-    text_input = st.text_area("Paste a review / complaint:", height=160)
+
+    model_choice = st.selectbox(
+        "Select BERTweet model",
+        list(MODEL_PATHS.keys())
+    )
+
+    text_input = st.text_area(
+        "Paste a review / complaint:",
+        height=160
+    )
 
     if st.button("Analyze Risk") and text_input.strip():
+
         with st.spinner("Analyzing..."):
             tokenizer, model = load_model(MODEL_PATHS[model_choice])
-            label, probs, outputs, enc = predict_text(text_input, tokenizer, model)
+            label, probs, outputs, enc = predict_text(
+                text_input, tokenizer, model
+            )
 
-        # ---------------- Prediction ----------------
+        # Prediction
         st.subheader("🧠 Prediction")
         st.success(f"Prediction: **{label}**")
 
-        # ---------------- SHAP Plain Language & Neon Highlights ----------------
-        shap_values = get_shap_explanation(text_input, tokenizer, model, max_tokens=50)
+        # SHAP
+        shap_values = get_shap_explanation(
+            text_input, tokenizer, model
+        )
 
-        st.subheader("📝 SHAP Explanation (Plain Language)")
-        plain_text = shap_plain_text_user(shap_values[0], label, LABELS)
-        st.markdown(plain_text)
+        st.subheader("📝 SHAP Explanation ")
+        st.markdown(
+            shap_plain_text_user(
+                shap_values[0],
+                label,
+                LABELS
+            )
+        )
 
-        # ---------------- Class Probabilities ----------------
+        st.subheader("✨ SHAP Token Contribution")
+        neon_html = shap_text_neon(shap_values[0])
+        components.html(neon_html, height=150)
+
+        # Probabilities
         st.subheader("📊 Class Probabilities")
         st.bar_chart(probs)
 
-        # ---------------- Attention Keywords ----------------
+        # Attention
         st.subheader("🔑 Attention Keywords")
-        keywords = get_attention_keywords(outputs, enc, tokenizer)
-        for tok, score in keywords:
+        for tok, score in get_attention_keywords(
+            outputs, enc, tokenizer
+        ):
             st.markdown(f"- **{tok}** (attention = {score:.4f})")
 
-        # ---------------- Optional SHAP Graph ----------------
-        st.subheader("📈 SHAP Graph (Optional)")
-        shap_plot_html = shap.plots.text(shap_values[0], display=False)
-        st_shap(shap_plot_html, height=200)
+        # SHAP HTML (Safe)
+        st.subheader("📈 SHAP Visualization")
+        try:
+            components.html(
+                shap_values[0].to_html(),
+                height=300,
+                scrolling=True
+            )
+        except Exception:
+            st.warning("SHAP visualization not supported here.")
 
     else:
         st.info("Enter text and click Analyze Risk")
