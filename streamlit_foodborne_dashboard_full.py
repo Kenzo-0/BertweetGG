@@ -212,20 +212,21 @@ with tab2:
                 LABELS
             )
         )
-
+         # Attention
+        st.subheader("🔑 Attention Keywords")
+        for tok, score in get_attention_keywords(
+            outputs, enc, tokenizer
+        ):
+            st.markdown(f"- **{tok}** (attention = {score:.4f})")
         
 
         # Probabilities
         st.subheader("📊 Class Probabilities")
         st.bar_chart(probs)
 
-        # Attention
-        st.subheader("🔑 Attention Keywords")
-        for tok, score in get_attention_keywords(
-            outputs, enc, tokenizer
-        ):
-            st.markdown(f"- **{tok}** (attention = {score:.4f})")
+       
 
     else:
         st.info("Enter text and click Analyze Risk")
+
 
